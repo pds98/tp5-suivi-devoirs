@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TP5 — Devoirs </title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+
+<body>
+<main class="shell">
+    <header>
+        <div>
+            <p class="eyebrow">420-TT4 · TP5 · Projet intégrateur</p>
+            <h1>Devoirs <span>en mission</span></h1>
+            <p class="lead">
+                PostgreSQL comme source de vérité, Redis comme accélérateur
+                et Docker Compose comme orchestrateur.
+            </p>
+        </div>
+
+        <div class="status">
+            <i id="dot"></i>
+            <span id="health">Connexion…</span>
+        </div>
+    </header>
+
+    <!-- Les 3 cartes  l'API -->
+    <section class="stats">
+        <div class="stat"><small>Étudiants</small><strong id="nbEtudiants">—</strong></div>
+        <div class="stat"><small>Devoirs</small><strong id="nbDevoirs">—</strong></div>
+        <!-- <div class="stat"><small>Cache</small><strong id="etatCache">—</strong></div>-->
+    </section>
+
+    <section class="grid">
+        <div class="col">
+            <!-- Créer un devoir /api/devoirs -->
+            <article class="panel">
+                <p class="eyebrow">Nouvelle tâche</p>
+                <h2>Créer un devoir</h2>
+
+                <form id="formDevoir">
+                    <label>
+                        Étudiant
+                        <select id="etudiant" required></select>
+                    </label>
+
+                    <label>
+                        Titre
+                        <input id="titre" required maxlength="200" placeholder="Ex. TP5 intégrateur">
+                    </label>
+
+                    <label>
+                        Description
+                        <textarea id="description" placeholder="Objectif du travail"></textarea>
+                    </label>
+
+                    <label>
+                        Date limite
+                        <input id="date" type="date" required>
+                    </label>
+
+                    <button class="primary">Créer le devoir</button>
+                </form>
+            </article>
+
+            <!-- Ajout étudiant -->
+            <article class="panel">
+                <p class="eyebrow">Inscription</p>
+                <h2>Nouvel étudiant</h2>
+
+                <form id="formEtudiant">
+                    <label>
+                        Nom
+                        <input id="nom" required maxlength="100" placeholder="Ex. Alice Tremblay">
+                    </label>
+
+                    <label>
+                        Programme
+                        <input id="programme" required maxlength="100" value="420-TT4">
+                    </label>
+
+                    <button class="primary">Ajouter l'étudiant</button>
+                </form>
+            </article>
+        </div>
+
+        <!--  api devoirs  -->
+        <article class="panel">
+            <div class="heading">
+                <div>
+                    <p class="eyebrow">Données en direct</p>
+                    <h2>Tableau des devoirs</h2>
+                </div>
+                <span id="count" class="count">0 devoir</span>
+            </div>
+
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                    <tr>
+                        <th>Devoir</th>
+                        <th>Étudiant</th>
+                        <th>Échéance</th>
+                        <th>Statut</th>
+                        <th></th>
+                    </tr>
+                    </thead>
+                    <tbody id="rows"></tbody>
+                </table>
+            </div>
+
+            <p class="api">En-tête API : <code id="xcache">—</code></p>
+        </article>
+    </section>
+
+    <p class="footer">API : 5002 · Adminer : 8085 · Redis est tolérant aux pannes.</p>
+</main>
+
+<script>
+    // Select des éléments HTML
+    const $ = (selector) => document.querySelector(selector);
+
+    const rows = $("#rows");
+    const count = $("#count");
+    const choixEtudiant = $("#etudiant");
+
+    // hash
+    const escapeHtml = (value) =>
+        String(value ?? "").replace(/[&<>'"]/g, (c) =>
+            ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[c]);
+
+    //affiche l'erreur si ça échoue
+    async function envoyer(url, method, corps) {
+        const response = await fetch(url, {
+            method,
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(corps)
+        });
+        if (!response.ok) {
+            const data = await response.json().catch(() => ({ error: "Route introuvable (" + response.status + ")" }));
+            alert(data.error || "Erreur");
+        }
+        return response.ok;
+    }
+
+    // État des services (GET /health)
+    async function checkHealth() {
+        try {
+            const response = await fetch("/health");
+            const data = await response.json();
+            $("#health").textContent = response.ok ? "Tous les services répondent" : "Base indisponible";
+            $("#etatCache").textContent = data.cache === "ok" ? "Redis OK" : "Dégradé";
+            if (!response.ok || data.cache !== "ok") $("#dot").style.background = "var(--orange)";
+        } catch {
+            $("#health").textContent = "Service indisponible";
+            $("#dot").style.background = "var(--orange)";
+        }
+    }
+
+    // Étudiants (GET /api/etudiants)
+    async function loadEtudiants() {
+        const etudiants = await (await fetch("/api/etudiants")).json();
+        $("#nbEtudiants").textContent = etudiants.length;
+        choixEtudiant.innerHTML = etudiants
+            .map((e) => `<option value="${e.id}">${escapeHtml(e.nom)} — ${escapeHtml(e.programme)}</option>`)
+            .join("");
+    }
+
+    // Devoirs (GET /api/devoirs)
+    async function loadDevoirs() {
+        const response = await fetch("/api/devoirs");
+        const devoirs = await response.json();
+
+        $("#xcache").textContent = response.headers.get("X-Cache") ?? "—";
+        $("#nbDevoirs").textContent = devoirs.length;
+        count.textContent = `${devoirs.length} devoir${devoirs.length > 1 ? "s" : ""}`;
+
+        rows.innerHTML = devoirs
+            .map((d) => `
+                <tr>
+                    <td>
+                        <strong>${escapeHtml(d.titre)}</strong>
+                        <small>${escapeHtml(d.description)}</small>
+                    </td>
+                    <td>${escapeHtml(d.etudiant)}</td>
+                    <td>${escapeHtml(d.date_limite)}</td>
+                    <td><span class="tag">${escapeHtml(d.statut)}</span></td>
+                    <td>
+                        ${d.statut === "termine"
+                            ? "✓"
+                            : `<button class="edit" data-id="${d.id}">Terminer</button>`}
+                    </td>
+                </tr>`)
+            .join("");
+    }
+
+    // Bouton Terminer
+    rows.addEventListener("click", async (event) => {
+        const button = event.target.closest("button");
+        if (!button) return;
+        if (await envoyer(`/api/devoirs/${button.dataset.id}`, "PATCH", { statut: "termine" })) {
+            await loadDevoirs();
+        }
+    });
+
+    // Créer un devoir
+    $("#formDevoir").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const ok = await envoyer("/api/devoirs", "POST", {
+            etudiant_id: Number(choixEtudiant.value),
+            titre: $("#titre").value,
+            description: $("#description").value,
+            date_limite: $("#date").value
+        });
+        if (ok) { event.target.reset(); await loadDevoirs(); }
+    });
+
+    // Ajouter un étudiant
+    $("#formEtudiant").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const ok = await envoyer("/api/etudiants", "POST", {
+            nom: $("#nom").value,
+            programme: $("#programme").value
+        });
+        if (ok) { event.target.reset(); await loadEtudiants(); }
+    });
+
+    // Démarrage de la page
+    async function initializePage() {
+        await checkHealth();
+        await loadEtudiants();
+        await loadDevoirs();
+    }
+
+    initializePage();
+</script>
+</body>
+</html>

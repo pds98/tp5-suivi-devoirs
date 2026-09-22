@@ -1,0 +1,19 @@
+# Dépendances et compilation (recréées par npm install / npm run build)
+node_modules/
+dist/
+
+# Secrets et journaux
+.env
+*.log
+npm-debug.log*
+
+# Fichiers système et éditeur
+.DS_Store
+.idea/
+.vscode/
+
+# Restes du TP4 (Flask), qui n'ont rien à voir avec le TP5
+app/
+requirements.txt
+docker-compose.yml
+docker-compose.yml.tp4-backup
